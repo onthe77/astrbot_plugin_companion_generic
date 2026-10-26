@@ -1,7 +1,7 @@
 name: astrbot_plugin_companion_generic
 display_name: Open Companion
 desc: 可配置的私聊角色连续性、心情延续、偏好和安静时段插件
-version: v1.0.0
+version: v1.1.0
 author: Open Companion Contributors
 support_platforms:
   - aiocqhttp

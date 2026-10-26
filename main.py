@@ -5,10 +5,10 @@ from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools, register
 from astrbot.api.message_components import Face
-from .engine import Store, build_context
+from .engine import Store, build_context, DEFAULT_GUIDANCE
 
 
-@register("astrbot_plugin_companion_generic", "Open Companion", "可配置的私聊角色连续性与偏好插件", "1.0.0")
+@register("astrbot_plugin_companion_generic", "Open Companion", "可配置的私聊角色连续性与偏好插件", "1.1.0")
 class GenericCompanion(Star):
     def __init__(self, context: Context, config: AstrBotConfig):
         super().__init__(context); self.config = config
@@ -69,10 +69,15 @@ class GenericCompanion(Star):
             logger.info("[generic companion] 安静时段，跳过本次主动生成。"); event.stop_event(); return
         if not proactive:
             text = str(event.message_str or "")
-            if text.startswith(str(self.config.get("command_prefix", "/伴侣"))): return
+            if text.lstrip('/ ').startswith('伴侣'): return
+            if self.config.get('auto_memory_enabled', False):
+                categories = self._list_config('auto_memory_categories') or ['称呼', '喜好', '表达']
+                self.store.auto_remember(scope, text,
+                    max(1, min(100, int(self.config.get('max_preferences', 24)))), categories,
+                    max(1, min(3, int(self.config.get('auto_memory_max_per_message', 2)))))
             state = self.store.observe(scope, text, self.half_life(), self.config.get("auto_activity", True), self.phrase_map(), self.activity_map())
         faces = [m.id for m in event.get_messages() if isinstance(m, Face)]
-        req.system_prompt = (req.system_prompt or "") + "\n\n" + build_context(state, faces, self.guidance() or __import__(".engine", fromlist=["DEFAULT_GUIDANCE"]).DEFAULT_GUIDANCE, self.settings())
+        req.system_prompt = (req.system_prompt or "") + "\n\n" + build_context(state, faces, DEFAULT_GUIDANCE + '\n' + (self.guidance() or ''), self.settings())
         event.set_extra("companion_prepared", True)
 
     @filter.on_llm_response(priority=-100)
@@ -101,7 +106,9 @@ class GenericCompanion(Star):
     async def list_command(self, event: AstrMessageEvent):
         scope=self.command_ok(event)
         if not scope:return
-        s=self.store.view(scope); event.stop_event(); yield event.plain_result("本插件保存的偏好：\n"+("\n".join(f"{k}：{v}" for k,v in s["preferences"].items()) or "暂无"))
+        s=self.store.view(scope); event.stop_event()
+        labels = {'auto': '自动', 'manual': '手动', 'initial': '初始'}
+        yield event.plain_result("本插件保存的偏好：\n"+("\n".join(f"{k}：{v} [{labels.get(s['preference_meta'].get(k, {}).get('source'), '手动')}]" for k,v in s["preferences"].items()) or "暂无"))
 
     def arg(self,event):
         parts=event.message_str.split(maxsplit=1); return parts[1].strip() if len(parts)>1 else ""

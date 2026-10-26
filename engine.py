@@ -34,6 +34,43 @@ def clean_text(text: str, limit: int = 600) -> str:
     return "".join(c for c in text.strip() if c >= " " or c == "\n")[:limit]
 
 
+def extract_preferences(text, categories=None):
+    """Conservative Chinese first-person statements, not arbitrary fact mining."""
+    text = clean_text(text, 1000)
+    if not text or len(text) > 300 or re.search(
+        r'[\n\r"“”「」『』`<>]|[?？]|(?:https?://|系统任务|主动对话|转发|引用|他说|她说|例如|比如|假如|如果|开玩笑|逗你|可能|也许|好像|暂时|今天|现在|这次|刚才|密码|口令|token|cookie|api.?key|身份证|手机号|住址|忽略.*规则)', text, re.I
+    ):
+        return []
+    enabled = set(categories if categories is not None else ['称呼', '喜好', '表达'])
+    result = []
+    for part in re.split(r'[。！!；;]', text):
+        part = part.strip()
+        if not part:
+            continue
+        if '称呼' in enabled:
+            match = re.fullmatch(r'(?:以后)?(?:请)?(?:你)?(?:可以)?叫我([^，,。！!?？]{1,16})(?:就好|就行)?', part)
+            if match:
+                name = match.group(1)
+                name = re.sub(r'(?:就好|就行)$', '', name).strip()
+                if name and not re.search(r'别|不要|不叫|或者|还是|命令|系统', name):
+                    result.append(('称呼用户', name))
+                    continue
+        if '喜好' in enabled:
+            match = re.fullmatch(r'我(?:一直|平时|通常)?(不喜欢|讨厌|喜欢|爱喝|爱吃)([^，,]{1,40})', part)
+            if match:
+                verb, value = match.groups()
+                if re.search(r'但|不过|而是|不再|不一定|你|他|她|说|规则|指令|执行', value):
+                    continue
+                result.append(('喜好：' + value, ('不喜欢' if verb in ('不喜欢', '讨厌') else '喜欢') + value))
+        if '表达' in enabled:
+            match = re.fullmatch(r'(?:以后)?(?:回复|回答|说话)(?:请)?(?:尽量)?(简短一点|短一点|详细一点|用中文|用英文|少用表情包|少用emoji|不要用Markdown|不要用markdown)', part, re.I)
+            if match:
+                value = match.group(1)
+                key = '回复长度' if '一点' in value else '回复语言' if value in ('用中文', '用英文') else '回复格式'
+                result.append((key, value))
+    return list(dict(result).items())[:3]
+
+
 def detect_mood(text: str, phrases=None):
     text = clean_text(text)
     phrases = phrases or {}
@@ -87,10 +124,18 @@ class Store:
 
     def _read(self, scope, now):
         row = self.db.execute("SELECT payload FROM states WHERE scope=?", (scope,)).fetchone()
-        if row: return json.loads(row[0])
+        if row:
+            s = json.loads(row[0])
+            s.setdefault('preference_meta', {})
+            s.setdefault('forgotten_keys', [])
+            # Existing preferences predate auto capture, so protect them as manual.
+            for key in s['preferences']:
+                s['preference_meta'].setdefault(key, {'source': 'manual'})
+            return s
         return {"mood": "平静", "strength": 0.0, "mood_at": now, "reason": "",
                 "preferences": dict(self.seed), "activity": "", "quiet_until": 0,
-                "recent": [], "last_user_at": 0}
+                "recent": [], "last_user_at": 0,
+                "preference_meta": {key: {'source': 'initial'} for key in self.seed}, "forgotten_keys": []}
 
     @staticmethod
     def decay(s, now, half_life):
@@ -130,11 +175,39 @@ class Store:
         with self.db:
             s = self._read(scope, time.time())
             if key not in s["preferences"] and len(s["preferences"]) >= max_items: raise ValueError(f"最多保存 {max_items} 条，请先删除不需要的条目。")
-            s["preferences"][key] = value; self._save(scope, s)
+            s["preferences"][key] = value
+            s['preference_meta'][key] = {'source': 'manual', 'updated_at': time.time()}
+            s['forgotten_keys'] = [k for k in s['forgotten_keys'] if k != key]
+            self._save(scope, s)
+
+    def auto_remember(self, scope, text, max_items=24, categories=None, max_per_message=2):
+        candidates = extract_preferences(text, categories)
+        saved = []
+        with self.db:
+            s = self._read(scope, time.time())
+            for key, value in candidates[:max_per_message]:
+                if key in s['forgotten_keys']:
+                    continue
+                if key in s['preferences'] and s['preference_meta'].get(key, {}).get('source') != 'auto':
+                    continue
+                if key not in s['preferences'] and len(s['preferences']) >= max_items:
+                    continue
+                if s['preferences'].get(key) == value:
+                    continue
+                s['preferences'][key] = value
+                s['preference_meta'][key] = {'source': 'auto', 'updated_at': time.time()}
+                saved.append(key)
+            self._save(scope, s)
+        return saved
 
     def forget(self, scope, key):
         with self.db:
-            s = self._read(scope, time.time()); found = s["preferences"].pop(key, None) is not None; self._save(scope, s)
+            s = self._read(scope, time.time())
+            found = s["preferences"].pop(key, None) is not None
+            s['preference_meta'].pop(key, None)
+            if found and key not in s['forgotten_keys']:
+                s['forgotten_keys'].append(key)
+            self._save(scope, s)
         return found
 
     def quiet(self, scope, minutes):
