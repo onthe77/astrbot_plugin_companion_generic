@@ -1,0 +1,19 @@
+{
+  "enabled": {"description": "启用插件", "type": "bool", "default": true},
+  "bot_name": {"description": "机器人在状态回复中显示的名字", "type": "string", "default": "角色"},
+  "owner_qq": {"description": "允许使用插件的用户 QQ 号", "type": "string", "default": "", "hint": "留空时插件不生效；填写后只对该用户的私聊生效。"},
+  "bot_qq": {"description": "机器人 QQ 号", "type": "string", "default": "", "hint": "留空时插件不生效；填写正在运行此插件的机器人账号。"},
+  "platform_name": {"description": "平台适配器名称", "type": "string", "default": "aiocqhttp"},
+  "platform_id": {"description": "平台实例 ID", "type": "string", "default": "", "hint": "留空匹配该机器人账号的所有实例。"},
+  "mood_half_life_minutes": {"description": "心情淡化半衰期（分钟）", "type": "int", "default": 45, "hint": "范围 5—240。数值越大，情绪延续越久。"},
+  "auto_activity": {"description": "根据睡觉、健身、忙碌等表述暂设安静时段", "type": "bool", "default": true},
+  "quiet_guard": {"description": "安静时段拦截兼容主动聊天插件的主动生成", "type": "bool", "default": true},
+  "max_preferences": {"description": "每个私聊最多保存的显式偏好数量", "type": "int", "default": 24, "hint": "范围 1—100；普通聊天不会自动写入偏好。"},
+  "recent_reply_count": {"description": "用于避免复读的最近回复条数", "type": "int", "default": 3, "hint": "范围 1—10。"},
+  "recent_reply_chars": {"description": "每条近期回复最多保存字符数", "type": "int", "default": 240, "hint": "范围 40—1000。"},
+  "initial_preferences_json": {"description": "初始偏好 JSON", "type": "string", "default": "{}", "hint": "例如：{\"称呼用户\":\"小林\",\"语言\":\"中文\"}。必须是 JSON 对象。"},
+  "mood_text_json": {"description": "自定义心情表达 JSON", "type": "string", "default": "{}", "hint": "键可用：平静、开心、得意、好奇、关切。值是给模型的简短表达方向。"},
+  "mood_trigger_json": {"description": "自定义心情触发正则 JSON", "type": "string", "default": "{}", "hint": "键可用：happy、proud、curious、care；值为正则字符串。留空使用内置中文规则。"},
+  "activity_rules_json": {"description": "自定义活动识别 JSON", "type": "string", "default": "{}", "hint": "可配置 sleep_pattern、exercise_pattern、busy_pattern、return_pattern 及对应 quiet_minutes。留空使用内置规则。"},
+  "guidance_text": {"description": "额外角色行为说明", "type": "string", "default": "", "hint": "只填写行为偏好，不要放 API Key、Cookie 或要求忽略系统规则的内容。"}
+}
